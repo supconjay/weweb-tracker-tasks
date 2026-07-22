@@ -53,10 +53,17 @@
           class="pp-task"
           :class="'pp-task--' + completeState(t)"
         >
-          <!-- Status icon -->
-          <div class="pp-task__status" :class="'pp-task__status--' + completeState(t)">
+          <!-- Status icon (tap to toggle Complete when editable) -->
+          <button
+            type="button"
+            class="pp-task__status"
+            :class="['pp-task__status--' + completeState(t), { 'pp-task__status--btn': canEdit }]"
+            :disabled="!canEdit"
+            :title="canEdit ? (isComplete(t) ? 'Mark incomplete' : 'Mark complete') : null"
+            @click="toggleComplete(t, pageOffset + i)"
+          >
             <svg class="pp-svg" v-bind="svgAttrs"><path :d="ic(statusIcon(t))"></path></svg>
-          </div>
+          </button>
 
           <!-- Body -->
           <div class="pp-task__body">
@@ -72,7 +79,29 @@
               </span>
             </div>
 
-            <p v-if="descriptionText(t)" class="pp-task__desc">{{ descriptionText(t) }}</p>
+            <!-- Description (inline editable) -->
+            <div v-if="isEditingDesc(t, pageOffset + i)" class="pp-edit">
+              <textarea
+                ref="descEditor"
+                v-model="editDescValue"
+                class="pp-edit__ta"
+                rows="4"
+                @keydown.esc="cancelDesc"
+              ></textarea>
+              <div class="pp-edit__actions">
+                <button type="button" class="pp-minibtn pp-minibtn--ok" @click="saveDesc(t, pageOffset + i)">
+                  <svg class="pp-svg" v-bind="svgAttrs"><path :d="ic('check')"></path></svg> Save
+                </button>
+                <button type="button" class="pp-minibtn" @click="cancelDesc">Cancel</button>
+              </div>
+            </div>
+            <div v-else-if="descriptionText(t) || canEdit" class="pp-task__descwrap">
+              <p v-if="descriptionText(t)" class="pp-task__desc">{{ descriptionText(t) }}</p>
+              <span v-else class="pp-task__desc pp-task__desc--none">No description</span>
+              <button v-if="canEdit" type="button" class="pp-iconbtn" title="Edit description" @click="startDesc(t, pageOffset + i)">
+                <svg class="pp-svg" v-bind="svgAttrs"><path :d="ic('pencil')"></path></svg>
+              </button>
+            </div>
 
             <div v-if="locationText(t)" class="pp-task__loc">
               <svg class="pp-svg" v-bind="svgAttrs"><path :d="ic('pin')"></path></svg>
@@ -80,16 +109,54 @@
             </div>
 
             <!-- Financials -->
-            <div v-if="content.showFinancials !== false && (laborVal(t) !== '' || materialVal(t) !== '')" class="pp-stats">
-              <span v-if="laborVal(t) !== ''" class="pp-stat">
+            <div v-if="content.showFinancials !== false && (laborVal(t) !== '' || materialVal(t) !== '' || canEditCosts)" class="pp-stats">
+              <span v-if="laborVal(t) !== '' || canEditCosts" class="pp-stat">
                 <span class="pp-stat__ico"><svg class="pp-svg" v-bind="svgAttrs"><path :d="ic('dollar')"></path></svg></span>
                 <span class="pp-stat__label">{{ content.laborLabel || 'Labor' }}</span>
-                <span class="pp-stat__value">{{ money(laborVal(t)) }}</span>
+                <input
+                  v-if="isEditingCost(t, 'labor', pageOffset + i)"
+                  ref="costEditor"
+                  v-model="editCostValue"
+                  class="pp-stat__input"
+                  type="number"
+                  min="0"
+                  step="any"
+                  @keydown.enter.prevent="saveCost(t, pageOffset + i)"
+                  @keydown.esc="cancelCost"
+                  @blur="saveCost(t, pageOffset + i)"
+                />
+                <button
+                  v-else-if="canEditCosts"
+                  type="button"
+                  class="pp-stat__value pp-stat__value--btn"
+                  title="Edit"
+                  @click="startCost(t, 'labor', pageOffset + i)"
+                >{{ laborVal(t) !== '' ? money(laborVal(t)) : '—' }}</button>
+                <span v-else class="pp-stat__value">{{ money(laborVal(t)) }}</span>
               </span>
-              <span v-if="materialVal(t) !== ''" class="pp-stat">
+              <span v-if="materialVal(t) !== '' || canEditCosts" class="pp-stat">
                 <span class="pp-stat__ico"><svg class="pp-svg" v-bind="svgAttrs"><path :d="ic('box')"></path></svg></span>
                 <span class="pp-stat__label">{{ content.materialLabel || 'Material' }}</span>
-                <span class="pp-stat__value">{{ money(materialVal(t)) }}</span>
+                <input
+                  v-if="isEditingCost(t, 'material', pageOffset + i)"
+                  ref="costEditor"
+                  v-model="editCostValue"
+                  class="pp-stat__input"
+                  type="number"
+                  min="0"
+                  step="any"
+                  @keydown.enter.prevent="saveCost(t, pageOffset + i)"
+                  @keydown.esc="cancelCost"
+                  @blur="saveCost(t, pageOffset + i)"
+                />
+                <button
+                  v-else-if="canEditCosts"
+                  type="button"
+                  class="pp-stat__value pp-stat__value--btn"
+                  title="Edit"
+                  @click="startCost(t, 'material', pageOffset + i)"
+                >{{ materialVal(t) !== '' ? money(materialVal(t)) : '—' }}</button>
+                <span v-else class="pp-stat__value">{{ money(materialVal(t)) }}</span>
               </span>
             </div>
 
@@ -101,24 +168,29 @@
                   {{ content.beforeLabel || 'Before' }}
                   <span v-if="beforePhotos(t).length" class="pp-count pp-count--sm">{{ beforePhotos(t).length }}</span>
                 </span>
-                <span v-if="!beforePhotos(t).length" class="pp-photogrp__none">{{ content.photosEmptyText || 'No photos' }}</span>
-                <div v-else class="pp-thumbs">
-                  <button
-                    v-for="(p, j) in beforePhotos(t).slice(0, photoMax)"
-                    :key="'b' + j"
-                    type="button"
-                    class="pp-thumb"
-                    @click="emitPhoto(t, 'before', j, p)"
-                  >
-                    <img v-if="photoThumb(p)" :src="photoThumb(p)" :alt="'Before ' + (j + 1)" />
-                    <svg v-else class="pp-svg" v-bind="svgAttrs"><path :d="ic('image')"></path></svg>
+                <div class="pp-thumbs">
+                  <template v-if="beforePhotos(t).length">
+                    <button
+                      v-for="(p, j) in beforePhotos(t).slice(0, photoMax)"
+                      :key="'b' + j"
+                      type="button"
+                      class="pp-thumb"
+                      @click="emitPhoto(t, 'before', j, p)"
+                    >
+                      <img v-if="photoThumb(p)" :src="photoThumb(p)" :alt="'Before ' + (j + 1)" />
+                      <svg v-else class="pp-svg" v-bind="svgAttrs"><path :d="ic('image')"></path></svg>
+                    </button>
+                    <button
+                      v-if="beforePhotos(t).length > photoMax"
+                      type="button"
+                      class="pp-thumb pp-thumb--more"
+                      @click="emitPhoto(t, 'before', photoMax, beforePhotos(t)[photoMax])"
+                    >+{{ beforePhotos(t).length - photoMax }}</button>
+                  </template>
+                  <span v-else class="pp-photogrp__none">{{ content.photosEmptyText || 'No photos' }}</span>
+                  <button v-if="canEdit" type="button" class="pp-thumb pp-thumb--add" :title="(content.addPhotosLabel || 'Add photos')" @click="emitAddPhotos(t, 'before', pageOffset + i)">
+                    <svg class="pp-svg" v-bind="svgAttrs"><path :d="ic('plus')"></path></svg>
                   </button>
-                  <button
-                    v-if="beforePhotos(t).length > photoMax"
-                    type="button"
-                    class="pp-thumb pp-thumb--more"
-                    @click="emitPhoto(t, 'before', photoMax, beforePhotos(t)[photoMax])"
-                  >+{{ beforePhotos(t).length - photoMax }}</button>
                 </div>
               </div>
 
@@ -128,26 +200,37 @@
                   {{ content.afterLabel || 'Completion' }}
                   <span v-if="afterPhotos(t).length" class="pp-count pp-count--sm">{{ afterPhotos(t).length }}</span>
                 </span>
-                <span v-if="!afterPhotos(t).length" class="pp-photogrp__none">{{ content.photosEmptyText || 'No photos' }}</span>
-                <div v-else class="pp-thumbs">
-                  <button
-                    v-for="(p, j) in afterPhotos(t).slice(0, photoMax)"
-                    :key="'a' + j"
-                    type="button"
-                    class="pp-thumb"
-                    @click="emitPhoto(t, 'after', j, p)"
-                  >
-                    <img v-if="photoThumb(p)" :src="photoThumb(p)" :alt="'Completion ' + (j + 1)" />
-                    <svg v-else class="pp-svg" v-bind="svgAttrs"><path :d="ic('image')"></path></svg>
+                <div class="pp-thumbs">
+                  <template v-if="afterPhotos(t).length">
+                    <button
+                      v-for="(p, j) in afterPhotos(t).slice(0, photoMax)"
+                      :key="'a' + j"
+                      type="button"
+                      class="pp-thumb"
+                      @click="emitPhoto(t, 'after', j, p)"
+                    >
+                      <img v-if="photoThumb(p)" :src="photoThumb(p)" :alt="'Completion ' + (j + 1)" />
+                      <svg v-else class="pp-svg" v-bind="svgAttrs"><path :d="ic('image')"></path></svg>
+                    </button>
+                    <button
+                      v-if="afterPhotos(t).length > photoMax"
+                      type="button"
+                      class="pp-thumb pp-thumb--more"
+                      @click="emitPhoto(t, 'after', photoMax, afterPhotos(t)[photoMax])"
+                    >+{{ afterPhotos(t).length - photoMax }}</button>
+                  </template>
+                  <span v-else class="pp-photogrp__none">{{ content.photosEmptyText || 'No photos' }}</span>
+                  <button v-if="canEdit" type="button" class="pp-thumb pp-thumb--add" :title="(content.addPhotosLabel || 'Add photos')" @click="emitAddPhotos(t, 'after', pageOffset + i)">
+                    <svg class="pp-svg" v-bind="svgAttrs"><path :d="ic('plus')"></path></svg>
                   </button>
-                  <button
-                    v-if="afterPhotos(t).length > photoMax"
-                    type="button"
-                    class="pp-thumb pp-thumb--more"
-                    @click="emitPhoto(t, 'after', photoMax, afterPhotos(t)[photoMax])"
-                  >+{{ afterPhotos(t).length - photoMax }}</button>
                 </div>
               </div>
+            </div>
+
+            <!-- Reminder to mark complete -->
+            <div v-if="canEdit && content.showCompleteHint !== false && completeState(t) === 'pending'" class="pp-hint">
+              <svg class="pp-svg" v-bind="svgAttrs"><path :d="ic('info')"></path></svg>
+              <span>{{ content.completeHintText || 'When finished, tap the clock icon to mark this task complete.' }}</span>
             </div>
           </div>
 
@@ -194,18 +277,35 @@ const ICONS = {
   box: "M21 8l-9-5-9 5v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8",
   image: "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5zM8.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21",
   pin: "M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0zM12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
+  pencil: "M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z",
+  check: "M20 6L9 17l-5-5",
+  info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01",
 };
 
 export default {
   props: { content: { type: Object, required: true }, uid: { type: String, required: false } },
   emits: ["trigger-event"],
   data() {
-    return { page: 1 };
+    return {
+      page: 1,
+      // Optimistic inline-edit overrides keyed by row id; cleared when the
+      // bound collection refreshes (workflows persist the real change).
+      localEdits: {},
+      editingDescKey: null,
+      editDescValue: "",
+      editingCost: null, // { key, kind: "labor" | "material" }
+      editCostValue: "",
+    };
   },
   watch: {
     taskCount(n) {
       const tp = Math.max(1, Math.ceil(n / this.pageSize));
       if (this.page > tp) this.page = tp;
+    },
+    tasks() {
+      this.localEdits = {};
+      this.editingDescKey = null;
+      this.editingCost = null;
     },
   },
   computed: {
@@ -223,9 +323,18 @@ export default {
     paginationActive() { return this.content.paginate !== false && this.totalPages > 1; },
     totalPages() { return Math.max(1, Math.ceil(this.taskCount / this.pageSize)); },
     pageOffset() { return this.content.paginate === false ? 0 : (this.page - 1) * this.pageSize; },
+    canEdit() { return this.content.editable !== false; },
+    canEditCosts() { return this.canEdit && this.content.editCosts !== false; },
+    // Bound tasks with local optimistic edits merged in.
+    mergedTasks() {
+      return this.tasks.map((t, i) => {
+        const ov = this.localEdits[this.rowKey(t, i)];
+        return ov ? Object.assign({}, t, ov) : t;
+      });
+    },
     pagedTasks() {
-      if (this.content.paginate === false) return this.tasks;
-      return this.tasks.slice(this.pageOffset, this.pageOffset + this.pageSize);
+      if (this.content.paginate === false) return this.mergedTasks;
+      return this.mergedTasks.slice(this.pageOffset, this.pageOffset + this.pageSize);
     },
     photoMax() { const n = Number(this.content.photoMax); return n > 0 ? Math.floor(n) : 4; },
     pageWindow() {
@@ -375,6 +484,87 @@ export default {
       const u = (att.url || att || "").toString().toLowerCase();
       return /\.(png|jpe?g|gif|webp|svg|bmp|avif|heic)(\?|#|$)/.test(u);
     },
+    // ---- inline editing ----
+    rowKey(t, absIndex) {
+      const id = this.taskId(t);
+      return id !== "" && id != null ? String(id) : "i" + absIndex;
+    },
+    setLocal(t, absIndex, patch) {
+      const k = this.rowKey(t, absIndex);
+      this.localEdits = Object.assign({}, this.localEdits, {
+        [k]: Object.assign({}, this.localEdits[k] || {}, patch),
+      });
+    },
+    focusRef(name, select) {
+      this.$nextTick(() => {
+        const el = this.$refs[name];
+        const node = Array.isArray(el) ? el[0] : el;
+        if (node) { node.focus(); if (select && node.select) node.select(); }
+      });
+    },
+    toggleComplete(t, absIndex) {
+      if (!this.canEdit) return;
+      const field = this.content.completeField || "Complete";
+      const next = !this.isComplete(t);
+      this.setLocal(t, absIndex, { [field]: next });
+      this.$emit("trigger-event", {
+        name: "completeToggle",
+        event: { id: this.taskId(t) || "", index: absIndex, value: next, task: Object.assign({}, t, { [field]: next }) },
+      });
+    },
+    isEditingDesc(t, absIndex) { return this.editingDescKey != null && this.editingDescKey === this.rowKey(t, absIndex); },
+    startDesc(t, absIndex) {
+      this.editingDescKey = this.rowKey(t, absIndex);
+      this.editDescValue = this.descriptionText(t);
+      this.focusRef("descEditor");
+    },
+    cancelDesc() { this.editingDescKey = null; },
+    saveDesc(t, absIndex) {
+      if (this.editingDescKey == null) return;
+      const field = this.content.descriptionField || "Tech Description";
+      const v = this.editDescValue;
+      this.editingDescKey = null;
+      this.setLocal(t, absIndex, { [field]: v });
+      this.$emit("trigger-event", {
+        name: "descriptionChange",
+        event: { id: this.taskId(t) || "", index: absIndex, value: v, task: Object.assign({}, t, { [field]: v }) },
+      });
+    },
+    isEditingCost(t, kind, absIndex) {
+      return !!this.editingCost && this.editingCost.kind === kind && this.editingCost.key === this.rowKey(t, absIndex);
+    },
+    startCost(t, kind, absIndex) {
+      if (!this.canEditCosts) return;
+      this.editingCost = { key: this.rowKey(t, absIndex), kind };
+      const v = kind === "labor" ? this.laborVal(t) : this.materialVal(t);
+      this.editCostValue = v === "" ? "" : v;
+      this.focusRef("costEditor", true);
+    },
+    cancelCost() { this.editingCost = null; },
+    saveCost(t, absIndex) {
+      if (!this.editingCost) return;
+      const kind = this.editingCost.kind;
+      this.editingCost = null;
+      const field = kind === "labor"
+        ? (this.content.laborField || "Labor Cost")
+        : (this.content.materialField || "Material Cost");
+      const raw = this.editCostValue;
+      if (raw === "" || raw == null) return; // no empty values (Airtable rejects "")
+      const n = Number(raw);
+      if (isNaN(n)) return;
+      this.setLocal(t, absIndex, { [field]: n });
+      this.$emit("trigger-event", {
+        name: "costChange",
+        event: { id: this.taskId(t) || "", index: absIndex, kind, field, value: n, task: Object.assign({}, t, { [field]: n }) },
+      });
+    },
+    emitAddPhotos(t, group, absIndex) {
+      const photos = group === "before" ? this.beforePhotos(t) : this.afterPhotos(t);
+      this.$emit("trigger-event", {
+        name: "addPhotos",
+        event: { group, id: this.taskId(t) || "", index: absIndex, photos: photos.slice(), task: t || {} },
+      });
+    },
     // ---- interactions ----
     goPage(p) {
       const next = Math.max(1, Math.min(this.totalPages, p));
@@ -454,7 +644,10 @@ export default {
 .pp-task:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
 .pp-task--done { background: color-mix(in srgb, var(--ok) 5%, var(--surface-2)); }
 
-.pp-task__status { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--surface-3); color: var(--text-subtle); }
+.pp-task__status { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--surface-3); color: var(--text-subtle); border: none; padding: 0; font: inherit; }
+.pp-task__status:disabled { cursor: default; }
+.pp-task__status--btn { cursor: pointer; transition: transform .12s, box-shadow .15s; }
+.pp-task__status--btn:hover { transform: scale(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent); }
 .pp-task__status .pp-svg { width: 22px; height: 22px; }
 .pp-task__status--done { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
 .pp-task__status--pending { background: color-mix(in srgb, var(--info) 13%, transparent); color: var(--info); }
@@ -466,7 +659,23 @@ export default {
 .pp-done { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); font-size: 12px; font-weight: 600; }
 .pp-done .pp-svg { width: 14px; height: 14px; }
 
-.pp-task__desc { margin: 0; color: var(--text-muted); font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pp-task__descwrap { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.pp-task__desc { margin: 0; color: var(--text-muted); font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; flex: 1; min-width: 0; }
+.pp-task__desc--none { color: var(--text-subtle); font-style: italic; }
+.pp-iconbtn { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text-subtle); cursor: pointer; padding: 0; transition: color .15s, border-color .15s, background .15s; }
+.pp-iconbtn:hover { color: var(--primary); border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.pp-iconbtn .pp-svg { width: 13px; height: 13px; }
+
+/* Inline description editor */
+.pp-edit { display: flex; flex-direction: column; gap: 8px; }
+.pp-edit__ta { width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text); font-family: inherit; font-size: 13.5px; line-height: 1.45; resize: vertical; min-height: 80px; outline: none; }
+.pp-edit__ta:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent); }
+.pp-edit__actions { display: flex; gap: 8px; }
+.pp-minibtn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-muted); font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.pp-minibtn:hover { background: var(--surface-3); color: var(--text); }
+.pp-minibtn .pp-svg { width: 14px; height: 14px; }
+.pp-minibtn--ok { background: var(--primary); border-color: var(--primary); color: #fff; }
+.pp-minibtn--ok:hover { background: var(--primary); color: #fff; filter: brightness(1.05); }
 .pp-task__loc { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 13px; font-weight: 500; }
 .pp-task__loc .pp-svg { width: 15px; height: 15px; color: var(--text-subtle); }
 
@@ -476,6 +685,9 @@ export default {
 .pp-stat__ico .pp-svg { width: 15px; height: 15px; }
 .pp-stat__label { color: var(--text-muted); font-size: 12.5px; font-weight: 600; }
 .pp-stat__value { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.pp-stat__value--btn { border: none; background: transparent; padding: 2px 4px; margin: -2px -4px; border-radius: 6px; font-family: inherit; cursor: pointer; text-decoration: underline dashed color-mix(in srgb, var(--text-muted) 55%, transparent); text-underline-offset: 3px; transition: background .15s, color .15s; }
+.pp-stat__value--btn:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary); }
+.pp-stat__input { width: 84px; padding: 4px 8px; border: 1px solid var(--primary); border-radius: 7px; background: var(--surface); color: var(--text); font-family: inherit; font-size: 13.5px; font-weight: 700; outline: none; }
 
 .pp-photos { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 4px; }
 .pp-photogrp { display: flex; flex-direction: column; gap: 6px; }
@@ -488,6 +700,14 @@ export default {
 .pp-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .pp-thumb .pp-svg { width: 18px; height: 18px; }
 .pp-thumb--more { font-size: 12.5px; font-weight: 700; color: var(--text-muted); background: var(--surface); }
+.pp-thumb--add { border-style: dashed; border-color: var(--border-strong); background: var(--surface); color: var(--text-subtle); }
+.pp-thumb--add:hover { border-color: var(--primary); color: var(--primary); background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.pp-thumb--add .pp-svg { width: 16px; height: 16px; }
+.pp-thumbs { align-items: center; }
+
+/* Complete reminder */
+.pp-hint { display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 9%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); color: color-mix(in srgb, var(--warn) 72%, var(--text)); font-size: 12.5px; font-weight: 500; margin-top: 2px; }
+.pp-hint .pp-svg { width: 15px; height: 15px; flex: none; margin-top: 1px; }
 
 .pp-open { flex: none; align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
 .pp-open:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); border-color: var(--primary); color: var(--primary); }
