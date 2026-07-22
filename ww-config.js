@@ -5,9 +5,9 @@ export default {
     { name: "addItem", label: { en: "On add item click" }, event: {} },
     { name: "photoClick", label: { en: "On photo click" }, event: { group: "before", index: 0, url: "", type: "", filename: "", isImage: true, photo: {}, photos: [], taskId: "", task: {} } },
     { name: "pageChange", label: { en: "On page change" }, event: { page: 1 } },
-    { name: "completeToggle", label: { en: "On complete toggled" }, event: { id: "", index: 0, value: true, task: {} } },
-    { name: "descriptionChange", label: { en: "On description edited" }, event: { id: "", index: 0, value: "", task: {} } },
-    { name: "costChange", label: { en: "On labor/material edited" }, event: { id: "", index: 0, kind: "labor", field: "Labor Cost", value: 0, task: {} } },
+    { name: "completeToggle", label: { en: "On complete toggled" }, event: { id: "", index: 0, previous: false, value: true, task: {} } },
+    { name: "descriptionChange", label: { en: "On description edited" }, event: { id: "", index: 0, previous: "", value: "", task: {} } },
+    { name: "costChange", label: { en: "On labor/material edited" }, event: { id: "", index: 0, kind: "labor", field: "Labor Cost", previous: 0, value: 0, task: {} } },
     { name: "addPhotos", label: { en: "On add photos click" }, event: { group: "before", id: "", index: 0, photos: [], task: {} } },
   ],
   properties: {

@@ -505,11 +505,12 @@ export default {
     toggleComplete(t, absIndex) {
       if (!this.canEdit) return;
       const field = this.content.completeField || "Complete";
-      const next = !this.isComplete(t);
+      const prev = this.isComplete(t);
+      const next = !prev;
       this.setLocal(t, absIndex, { [field]: next });
       this.$emit("trigger-event", {
         name: "completeToggle",
-        event: { id: this.taskId(t) || "", index: absIndex, value: next, task: Object.assign({}, t, { [field]: next }) },
+        event: { id: this.taskId(t) || "", index: absIndex, previous: prev, value: next, task: Object.assign({}, t, { [field]: next }) },
       });
     },
     isEditingDesc(t, absIndex) { return this.editingDescKey != null && this.editingDescKey === this.rowKey(t, absIndex); },
@@ -522,12 +523,13 @@ export default {
     saveDesc(t, absIndex) {
       if (this.editingDescKey == null) return;
       const field = this.content.descriptionField || "Tech Description";
+      const prev = this.descriptionText(t);
       const v = this.editDescValue;
       this.editingDescKey = null;
       this.setLocal(t, absIndex, { [field]: v });
       this.$emit("trigger-event", {
         name: "descriptionChange",
-        event: { id: this.taskId(t) || "", index: absIndex, value: v, task: Object.assign({}, t, { [field]: v }) },
+        event: { id: this.taskId(t) || "", index: absIndex, previous: prev, value: v, task: Object.assign({}, t, { [field]: v }) },
       });
     },
     isEditingCost(t, kind, absIndex) {
@@ -552,10 +554,12 @@ export default {
       if (raw === "" || raw == null) return; // no empty values (Airtable rejects "")
       const n = Number(raw);
       if (isNaN(n)) return;
+      const prevRaw = kind === "labor" ? this.laborVal(t) : this.materialVal(t);
+      const prev = prevRaw === "" || prevRaw == null ? null : Number(prevRaw);
       this.setLocal(t, absIndex, { [field]: n });
       this.$emit("trigger-event", {
         name: "costChange",
-        event: { id: this.taskId(t) || "", index: absIndex, kind, field, value: n, task: Object.assign({}, t, { [field]: n }) },
+        event: { id: this.taskId(t) || "", index: absIndex, kind, field, previous: prev, value: n, task: Object.assign({}, t, { [field]: n }) },
       });
     },
     emitAddPhotos(t, group, absIndex) {
