@@ -207,7 +207,7 @@
                       :key="'a' + j"
                       type="button"
                       class="pp-thumb"
-                      @click="emitPhoto(t, 'after', j, p)"
+                      @click="emitPhoto(t, 'completion', j, p)"
                     >
                       <img v-if="photoThumb(p)" :src="photoThumb(p)" :alt="'Completion ' + (j + 1)" />
                       <svg v-else class="pp-svg" v-bind="svgAttrs"><path :d="ic('image')"></path></svg>
@@ -216,11 +216,11 @@
                       v-if="afterPhotos(t).length > photoMax"
                       type="button"
                       class="pp-thumb pp-thumb--more"
-                      @click="emitPhoto(t, 'after', photoMax, afterPhotos(t)[photoMax])"
+                      @click="emitPhoto(t, 'completion', photoMax, afterPhotos(t)[photoMax])"
                     >+{{ afterPhotos(t).length - photoMax }}</button>
                   </template>
                   <span v-else class="pp-photogrp__none">{{ content.photosEmptyText || 'No photos' }}</span>
-                  <button v-if="canEdit" type="button" class="pp-thumb pp-thumb--add" :title="(content.addPhotosLabel || 'Add photos')" @click="emitAddPhotos(t, 'after', pageOffset + i)">
+                  <button v-if="canEdit" type="button" class="pp-thumb pp-thumb--add" :title="(content.addPhotosLabel || 'Add photos')" @click="emitAddPhotos(t, 'completion', pageOffset + i)">
                     <svg class="pp-svg" v-bind="svgAttrs"><path :d="ic('plus')"></path></svg>
                   </button>
                 </div>
